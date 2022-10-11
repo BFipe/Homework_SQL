@@ -1,13 +1,12 @@
 use Library_SQL
 go
-
 select * from UserInfo
 go
-exec GiveBookToUser 'Книгискучно@шиломыло', 'Александр', 'Пушкин', 'Капитанская дочка'
+exec GiveBookToUser N'Книгискучно@шиломыло', N'Александр', N'Пушкин', N'Капитанская дочка'
 go
-exec ReturnBook 'ИльяМаксимов@шиломыло', 'Антон', 'Чехов', 'Хамелеон'
+exec ReturnBook N'ИльяМаксимов@шиломыло', N'Антон', N'Чехов', N'Хамелеон'
 go
-exec ReturnBook 'НеТакаяКакВсе@шиломыло', 'Михаил', 'Булгаков', 'Мастер и Маргарита'
+exec ReturnBook N'НеТакаяКакВсе@шиломыло', N'Михаил', N'Булгаков', N'Мастер и Маргарита'
 go
 delete from Users where ExpiredDate < GETDATE() 
  
