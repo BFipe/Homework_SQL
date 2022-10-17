@@ -1,4 +1,5 @@
 create database Library_SQL
+go
 use Library_SQL
 go
 create table Authors(

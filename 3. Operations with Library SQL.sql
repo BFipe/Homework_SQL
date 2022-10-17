@@ -3,7 +3,9 @@ as
 select 
 U.Id as UserId,
 U.FirstName + ' ' + U.LastName as UserFullName, 
+U.Email As Email,
 U.Age as UserAge,
+U.ExpiredDate as ExpiredDate,
 A.FirstName + ' ' + A.LastName as AuthorFullName,
 B.Name as BookName,
 B.Year as BookYear,
@@ -12,10 +14,41 @@ from UserBooks UB
          right join Users U on U.Id = UB.UserId
          left join Books B on B.Id = UB.BookId
 		 left join Authors A on A.Id = B.AuthorId
+------------------------------------------------------------
+go
+create or alter procedure DeleteUsersByExpiredDate
+as
+begin
+declare @IdExpiredDate table (UserExpiredId int)
+declare @IdExpiredDateWithBooks table (UserExpiredId int)
+insert into @IdExpiredDate select UserId from UserInfo where BookName is null and ExpiredDate < GETDATE() 
+insert into @IdExpiredDateWithBooks select UserId from UserInfo where BookName is not null and ExpiredDate < GETDATE() group by UserId
+declare @ExpiredStatus int = coalesce((select Top(1) * from @IdExpiredDate), 0)
+declare @ExpiredStatusWithBooks int = coalesce((select Top(1) * from @IdExpiredDateWithBooks), 0)
+
+	while @ExpiredStatus != 0
+	begin
+	declare @UserWithoutBooks nvarchar(50) = concat((select UserFullName from UserInfo where UserId = @ExpiredStatus), ', Email - ', (select Email from UserInfo where UserId = @ExpiredStatus))
+	delete from Users where Id in (select * from @IdExpiredDate where UserExpiredId = @ExpiredStatus)
+	print concat('Юзер ', @UserWithoutBooks,' успешно удален!')
+	delete from @IdExpiredDate where UserExpiredId = @ExpiredStatus
+	set @ExpiredStatus = coalesce((select Top(1) * from @IdExpiredDate), 0)
+	end
+	
+	while @ExpiredStatusWithBooks != 0
+	begin
+	declare @UserWithBooks nvarchar(50) = concat((select UserFullName from UserInfo where UserId = @ExpiredStatusWithBooks group by UserFullName), ', Email - ', (select Email from UserInfo where UserId = @ExpiredStatusWithBooks group by Email))
+	print concat('Невозможно удалить юзера ', @UserWithBooks, ' так как у него все еще есть книги!' ) 
+	delete from @IdExpiredDateWithBooks where UserExpiredId = @ExpiredStatusWithBooks
+	set @ExpiredStatusWithBooks = coalesce((select Top(1) * from @IdExpiredDateWithBooks), 0)
+	end
+
+	print 'Процедура по удалению юзеров с истекшим сроком хранения данных успешно завершена!'
+end
 
 ------------------------------------------------------------
 go
-create procedure GiveBookToUser(@Email nvarchar(50),@AuthorFirstName nvarchar(50), @AuthorLastName nvarchar(50), @BookName nvarchar(50))
+create or alter procedure GiveBookToUser(@Email nvarchar(50),@AuthorFirstName nvarchar(50), @AuthorLastName nvarchar(50), @BookName nvarchar(50))
 as
 begin
  declare @EmailStatus int = iif(@Email IN (SELECT Email FROM Users), 1, 0)
@@ -25,7 +58,8 @@ begin
 		return;
 	end
 
- declare @AuthorStatus int = iif(Concat(@AuthorFirstName, ' ', @AuthorLastName)  IN (Select Concat(FirstName, ' ', LastName) from Authors) ,1,0)
+ declare @AuthorFullName nvarchar(50) = Concat(@AuthorFirstName, ' ', @AuthorLastName)
+ declare @AuthorStatus int = iif(@AuthorFullName IN (Select Concat(FirstName, ' ', LastName) from Authors) ,1,0)
   if @AuthorStatus = 0
 	begin
 		print N'Такого автора не существует'
@@ -39,7 +73,6 @@ begin
 		return;
 	end
 
-  declare @AuthorFullName nvarchar(50) = Concat(@AuthorFirstName, ' ', @AuthorLastName)
   declare @IdAuthorOfTheBook int = (select AuthorId from Books where @BookId = Books.Id)
   if  @IdAuthorOfTheBook <> (select Id from Authors where @AuthorFullName = Concat(FirstName, ' ', LastName)) 
    begin
@@ -61,10 +94,7 @@ begin
  print N'Вы взяли книгу "' + @BookName + N'" автора ' + @AuthorFullName
 end
 go
-
-
 ------------------------------------------------------------
-
 alter table UserBooks
  add ToCharge money null
  -----------------------------------------------------------
@@ -78,11 +108,12 @@ begin
     return @Result;
 end
 go
-create or alter procedure ChargeUser @Email nvarchar(50)
+
+create or alter procedure ChargeUser @Email nvarchar(50), @BookId int
 as
 begin
-	declare @Sum int = (select sum(dbo.GetCharge(CreatedDate, 60)) from UserBooks where UserId = (select Id from Users where @Email = Email))
-	update UserBooks set ToCharge = @Sum where UserId = (select Id from Users where Email = @Email)
+	declare @Sum int = (select dbo.GetCharge(CreatedDate, 60) from UserBooks where UserId = (select Id from Users where @Email = Email) and BookId = @BookId)
+	update UserBooks set ToCharge = @Sum where UserId = (select Id from Users where Email = @Email) and BookId = @BookId
 end
 go
 ------------------------------------------------------------
@@ -126,7 +157,7 @@ begin
 		return;
 	end
 
- exec ChargeUser @Email
+ exec ChargeUser @Email, @BookId
  declare @ChargeAmount int = (select ToCharge from UserBooks where BookId = @BookId) 
  print concat(N'Вы должны ', @ChargeAmount ,N' за удержание книги')
  delete from UserBooks where BookId = @BookId
